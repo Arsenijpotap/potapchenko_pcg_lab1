@@ -1,3 +1,4 @@
+import type { ChangeEvent } from 'react';
 'use client';
 
 import { CMYK, HSV, LAB, GamutStrategy, Illuminant } from '../model/color';
@@ -34,7 +35,7 @@ export function ColorWorkspace({
         <h1>CMYK ↔ LAB ↔ HSV</h1>
         <p>Интерактивное ручное преобразование трёх цветовых моделей</p>
         <div className="color-tools">
-          <input className="native-picker" type="color" value={hex} onChange={e => changeHex(e.target.value)} />
+          <input className="native-picker" type="color" value={hex} onChange={(e: ChangeEvent<HTMLInputElement>) => changeHex(e.target.value)} />
           <span className="hex-label">{hex.toUpperCase()}</span>
         </div>
       </div>
