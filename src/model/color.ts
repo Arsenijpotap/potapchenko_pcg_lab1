@@ -15,10 +15,13 @@ const EPSILON = 0.008856;
 const KAPPA = 7.787;
 const EPSILON_CUBE_ROOT = 16 / 116;
 
-const WHITE_POINTS: Record<Illuminant, { x: number; y: number }> = {
-  D65: { x: 0.3127, y: 0.3290 },
-  D50: { x: 0.3457, y: 0.3585 },
-  E: { x: 1 / 3, y: 1 / 3 },
+// Стандартные белые точки CIE 1931 2° в относительных XYZ-координатах.
+// Матрица RGB↔XYZ не хранится как готовая константа: она каждый раз
+// вычисляется из примариев sRGB и выбранной белой точки.
+const WHITE_POINTS: Record<Illuminant, XYZ> = {
+  D65: { x: 0.95047, y: 1, z: 1.08883 },
+  D50: { x: 0.96422, y: 1, z: 0.82521 },
+  E: { x: 1, y: 1, z: 1 },
 };
 
 const SRGB_PRIMARIES = {
@@ -46,16 +49,8 @@ function multiplyMatrixVector(matrix: Matrix3, vector: XYZ): XYZ {
   };
 }
 
-function xyToXyz(x: number, y: number): XYZ {
-  return { x: x / y, y: 1, z: (1 - x - y) / y };
-}
-
-function xyToUnitPrimary(x: number, y: number): XYZ {
-  return { x: x / y, y: 1, z: (1 - x - y) / y };
-}
-
 export function buildConversionMatrices(illuminant: Illuminant): ConversionMatrices {
-  const white = xyToXyz(WHITE_POINTS[illuminant].x, WHITE_POINTS[illuminant].y);
+  const white = WHITE_POINTS[illuminant];
   const primaries: Matrix3 = [
     [SRGB_PRIMARIES.r.x / SRGB_PRIMARIES.r.y, SRGB_PRIMARIES.g.x / SRGB_PRIMARIES.g.y, SRGB_PRIMARIES.b.x / SRGB_PRIMARIES.b.y],
     [1, 1, 1],
