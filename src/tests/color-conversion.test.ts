@@ -22,6 +22,30 @@ assert.ok(Math.abs(d50[0][0] - e[0][0]) > 1e-5);
 const roundTrip = labToRgb(redLab, 'D65', 'clipping');
 close(roundTrip.r, 255, 0.01); close(roundTrip.g, 0, 0.01); close(roundTrip.b, 0, 0.01);
 
+
+// Проверка формулы RGB→CMYK из методички: K=min(1-R,1-G,1-B),
+// C=(1-R-K)/(1-K), M=(1-G-K)/(1-K), Y=(1-B-K)/(1-K).
+const sampleRgb = { r: 51, g: 102, b: 153 };
+const sampleCmyk = rgbToCmyk(sampleRgb, 'GCR');
+const expectedK = Math.min(1 - 51 / 255, 1 - 102 / 255, 1 - 153 / 255);
+const expectedC = (1 - 51 / 255 - expectedK) / (1 - expectedK) * 100;
+const expectedM = (1 - 102 / 255 - expectedK) / (1 - expectedK) * 100;
+const expectedY = (1 - 153 / 255 - expectedK) / (1 - expectedK) * 100;
+close(sampleCmyk.c, expectedC, 1e-10);
+close(sampleCmyk.m, expectedM, 1e-10);
+close(sampleCmyk.y, expectedY, 1e-10);
+close(sampleCmyk.k, expectedK * 100, 1e-10);
+
+// GCR и UCR должны оставаться обратимыми через CMYK→RGB.
+const richRgb = { r: 64, g: 72, b: 80 };
+for (const algorithm of ['GCR', 'UCR'] as const) {
+  const separated = rgbToCmyk(richRgb, algorithm);
+  const restored = cmykToRgb(separated);
+  close(restored.r, richRgb.r, 1e-8);
+  close(restored.g, richRgb.g, 1e-8);
+  close(restored.b, richRgb.b, 1e-8);
+}
+
 console.log('All color math micro-tests passed.');
 
 

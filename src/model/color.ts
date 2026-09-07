@@ -120,22 +120,28 @@ export function rgbToCmyk(rgb: RGB, algorithm: SeparationAlgorithm = 'GCR'): CMY
   if (k >= 0.999999) return { c: 0, m: 0, y: 0, k: 100 };
 
   if (algorithm === 'UCR') {
-    const depth = k;
-    const ucr = Math.max(0, Math.min(1, (depth - 0.5) / 0.5));
-    const baseK = k + (1 - k) * ucr;
+    // UCR удаляет серую составляющую преимущественно в глубоких тенях.
+    // До 50% плотности дополнительный чёрный не вводится; от 50% до 100%
+    // его доля плавно возрастает. Формула сохраняет исходный RGB при обратном CMYK→RGB.
+    const shadowStrength = clamp((k - 0.5) / 0.5);
+    const black = k * shadowStrength;
+    const denominator = 1 - black;
     return {
-      c: (c - k) * (1 - ucr) / (1 - baseK) * 100,
-      m: (m - k) * (1 - ucr) / (1 - baseK) * 100,
-      y: (y - k) * (1 - ucr) / (1 - baseK) * 100,
-      k: baseK * 100,
+      c: (c - black) / denominator * 100,
+      m: (m - black) / denominator * 100,
+      y: (y - black) / denominator * 100,
+      k: black * 100,
     };
   }
 
+  // GCR заменяет серую компоненту во всём диапазоне:
+  // K = min(C, M, Y), затем оставшиеся CMY нормируются относительно K.
   const gray = k;
+  const denominator = 1 - gray;
   return {
-    c: (c - gray) * 100,
-    m: (m - gray) * 100,
-    y: (y - gray) * 100,
+    c: denominator === 0 ? 0 : (c - gray) / denominator * 100,
+    m: denominator === 0 ? 0 : (m - gray) / denominator * 100,
+    y: denominator === 0 ? 0 : (y - gray) / denominator * 100,
     k: gray * 100,
   };
 }
