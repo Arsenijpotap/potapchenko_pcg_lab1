@@ -1,0 +1,39 @@
+import {
+  CMYK, HSV, Illuminant, LAB, RGB, GamutStrategy, SeparationAlgorithm,
+  cmykToHsv, cmykToLab, cmykToRgb, hsvToCmyk, hsvToLab, hsvToRgb,
+  labToCmyk, labToHsv, labToRgbWithGamut, rgbToCmyk, rgbToHsv, rgbToLab,
+} from './color';
+
+export type ColorState = { rgb: RGB; cmyk: CMYK; lab: LAB; hsv: HSV };
+
+export function stateFromRgb(rgb: RGB, illuminant: Illuminant, separation: SeparationAlgorithm): ColorState {
+  return {
+    rgb,
+    cmyk: rgbToCmyk(rgb, separation),
+    lab: rgbToLab(rgb, illuminant),
+    hsv: rgbToHsv(rgb),
+  };
+}
+
+export function stateFromCmyk(cmyk: CMYK, illuminant: Illuminant, separation: SeparationAlgorithm): ColorState {
+  const rgb = cmykToRgb(cmyk);
+  return { rgb, cmyk, lab: cmykToLab(cmyk, illuminant), hsv: cmykToHsv(cmyk) };
+}
+
+export function stateFromLab(lab: LAB, illuminant: Illuminant, strategy: GamutStrategy, separation: SeparationAlgorithm): ColorState {
+  const rgb = labToRgbWithGamut(lab, illuminant, strategy).rgb;
+  return { rgb, lab, cmyk: labToCmyk(lab, illuminant, strategy, separation), hsv: labToHsv(lab, illuminant, strategy) };
+}
+
+export function stateFromHsv(hsv: HSV, illuminant: Illuminant, separation: SeparationAlgorithm): ColorState {
+  const rgb = hsvToRgb(hsv);
+  return { rgb, hsv, cmyk: hsvToCmyk(hsv, separation), lab: hsvToLab(hsv, illuminant) };
+}
+
+export function stateForIlluminant(state: ColorState, illuminant: Illuminant, separation: SeparationAlgorithm): ColorState {
+  return stateFromRgb(state.rgb, illuminant, separation);
+}
+
+export function stateForSeparation(state: ColorState, separation: SeparationAlgorithm): ColorState {
+  return { ...state, cmyk: rgbToCmyk(state.rgb, separation) };
+}
