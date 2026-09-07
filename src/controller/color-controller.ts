@@ -2,7 +2,7 @@ import {
   CMYK, HSV, Illuminant, LAB, RGB, GamutStrategy, SeparationAlgorithm,
   cmykToHsv, cmykToLab, cmykToRgb, hsvToCmyk, hsvToLab, hsvToRgb,
   labToCmyk, labToHsv, labToRgbWithGamut, rgbToCmyk, rgbToHsv, rgbToLab,
-} from './color';
+} from '../model/color';
 
 export type ColorState = { rgb: RGB; cmyk: CMYK; lab: LAB; hsv: HSV };
 
