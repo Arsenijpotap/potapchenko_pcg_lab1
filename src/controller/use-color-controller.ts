@@ -106,5 +106,6 @@ export function useColorController() {
     changeStrategy,
     changeSeparation,
     changeHex,
+    gradients,
   };
 }
