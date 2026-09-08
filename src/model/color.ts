@@ -11,13 +11,10 @@ type Matrix3 = [[number, number, number], [number, number, number], [number, num
 type ConversionMatrices = { rgbToXyz: Matrix3; xyzToRgb: Matrix3; whitePoint: XYZ };
 
 const clamp = (x: number, min = 0, max = 1) => Math.min(max, Math.max(min, x));
-const EPSILON = 0.008856;
-const KAPPA = 7.787;
+const EPSILON = 216 / 24389;
+const KAPPA = 841 / 108;
 const EPSILON_CUBE_ROOT = 16 / 116;
 
-// Стандартные белые точки CIE 1931 2° в относительных XYZ-координатах.
-// Матрица RGB↔XYZ не хранится как готовая константа: она каждый раз
-// вычисляется из примариев sRGB и выбранной белой точки.
 const WHITE_POINTS: Record<Illuminant, XYZ> = {
   D65: { x: 0.95047, y: 1, z: 1.08883 },
   D50: { x: 0.96422, y: 1, z: 0.82521 },
@@ -29,6 +26,8 @@ const SRGB_PRIMARIES = {
   g: { x: 0.30, y: 0.60 },
   b: { x: 0.15, y: 0.06 },
 };
+
+const MATRIX_CACHE = new Map<Illuminant, ConversionMatrices>();
 
 function invertMatrix(matrix: Matrix3): Matrix3 {
   const [[a, b, c], [d, e, f], [g, h, i]] = matrix;
@@ -50,6 +49,9 @@ function multiplyMatrixVector(matrix: Matrix3, vector: XYZ): XYZ {
 }
 
 export function buildConversionMatrices(illuminant: Illuminant): ConversionMatrices {
+  const cached = MATRIX_CACHE.get(illuminant);
+  if (cached) return cached;
+
   const white = WHITE_POINTS[illuminant];
   const primaries: Matrix3 = [
     [SRGB_PRIMARIES.r.x / SRGB_PRIMARIES.r.y, SRGB_PRIMARIES.g.x / SRGB_PRIMARIES.g.y, SRGB_PRIMARIES.b.x / SRGB_PRIMARIES.b.y],
@@ -66,7 +68,9 @@ export function buildConversionMatrices(illuminant: Illuminant): ConversionMatri
     [primaries[1][0] * scale.x, primaries[1][1] * scale.y, primaries[1][2] * scale.z],
     [primaries[2][0] * scale.x, primaries[2][1] * scale.y, primaries[2][2] * scale.z],
   ];
-  return { rgbToXyz, xyzToRgb: invertMatrix(rgbToXyz), whitePoint: white };
+  const result = { rgbToXyz, xyzToRgb: invertMatrix(rgbToXyz), whitePoint: white };
+  MATRIX_CACHE.set(illuminant, result);
+  return result;
 }
 
 export function hexToRgb(hex: string): RGB {
@@ -115,9 +119,6 @@ export function rgbToCmyk(rgb: RGB, algorithm: SeparationAlgorithm = 'GCR'): CMY
   if (k >= 0.999999) return { c: 0, m: 0, y: 0, k: 100 };
 
   if (algorithm === 'UCR') {
-    // UCR удаляет серую составляющую преимущественно в глубоких тенях.
-    // До 50% плотности дополнительный чёрный не вводится; от 50% до 100%
-    // его доля плавно возрастает. Формула сохраняет исходный RGB при обратном CMYK→RGB.
     const shadowStrength = clamp((k - 0.5) / 0.5);
     const black = k * shadowStrength;
     const denominator = 1 - black;
@@ -129,8 +130,6 @@ export function rgbToCmyk(rgb: RGB, algorithm: SeparationAlgorithm = 'GCR'): CMY
     };
   }
 
-  // GCR заменяет серую компоненту во всём диапазоне:
-  // K = min(C, M, Y), затем оставшиеся CMY нормируются относительно K.
   const gray = k;
   const denominator = 1 - gray;
   return {

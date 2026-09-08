@@ -26,8 +26,6 @@ const roundTrip = labToRgb(redLab, 'D65', 'clipping');
 close(roundTrip.r, 255, 0.01); close(roundTrip.g, 0, 0.01); close(roundTrip.b, 0, 0.01);
 
 
-// Проверка формулы RGB→CMYK из методички: K=min(1-R,1-G,1-B),
-// C=(1-R-K)/(1-K), M=(1-G-K)/(1-K), Y=(1-B-K)/(1-K).
 const sampleRgb = { r: 51, g: 102, b: 153 };
 const sampleCmyk = rgbToCmyk(sampleRgb, 'GCR');
 const expectedK = Math.min(1 - 51 / 255, 1 - 102 / 255, 1 - 153 / 255);
@@ -39,7 +37,6 @@ close(sampleCmyk.m, expectedM, 1e-10);
 close(sampleCmyk.y, expectedY, 1e-10);
 close(sampleCmyk.k, expectedK * 100, 1e-10);
 
-// GCR и UCR должны оставаться обратимыми через CMYK→RGB.
 const richRgb = { r: 64, g: 72, b: 80 };
 for (const algorithm of ['GCR', 'UCR'] as const) {
   const separated = rgbToCmyk(richRgb, algorithm);
@@ -74,20 +71,17 @@ close(redCmykFromLab.c, 0, 0.01); close(redCmykFromLab.m, 100, 0.01); close(redC
 const redLabFromHsv = hsvToLab(redHsv, 'D65');
 close(redLabFromHsv.l, 53.2407888676, 1e-9); close(redLabFromHsv.a, 80.0924942864, 1e-9); close(redLabFromHsv.b, 67.2031913974, 1e-9);
 
-// Контрольные точки HSV.
 assert.deepEqual(rgbToHsv({ r: 255, g: 0, b: 0 }), { h: 0, s: 100, v: 100 });
 assert.deepEqual(rgbToHsv({ r: 0, g: 255, b: 0 }), { h: 120, s: 100, v: 100 });
 assert.deepEqual(rgbToHsv({ r: 0, g: 0, b: 255 }), { h: 240, s: 100, v: 100 });
 const cyan = hsvToRgb({ h: 180, s: 100, v: 100 });
 close(cyan.r, 0, 1e-10); close(cyan.g, 255, 1e-10); close(cyan.b, 255, 1e-10);
 
-// Контрольная точка из формулы RGB→CMYK: RGB(51,102,153) → (66.666...,33.333...,0,40).
 close(sampleCmyk.c, 66.66666666666667, 1e-10);
 close(sampleCmyk.m, 33.33333333333333, 1e-10);
 close(sampleCmyk.y, 0, 1e-10);
 close(sampleCmyk.k, 40, 1e-10);
 
-// Все три освещения должны давать разные матрицы, пересчитанные моделью на лету.
 for (const illuminant of ['D65', 'D50', 'E'] as const) {
   const matrix = buildConversionMatrices(illuminant).rgbToXyz;
   for (const row of matrix) for (const value of row) assert.ok(Number.isFinite(value));

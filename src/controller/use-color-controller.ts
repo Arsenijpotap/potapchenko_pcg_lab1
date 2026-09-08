@@ -1,9 +1,9 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   CMYK, HSV, LAB, GamutStrategy, Illuminant, SeparationAlgorithm,
-  cmykToRgb, hsvToRgb, labToRgbWithGamut, rgbToCmyk, rgbToHex, hexToRgb,
+  labToRgbWithGamut, rgbToCmyk, rgbToHex, hexToRgb, hsvToRgb,
 } from '../model/color';
 import {
   ColorState,
@@ -26,23 +26,34 @@ const HSV_FIELDS: SliderItem<HSV>[] = [
   ['h', 'H°', 0, 360, 0.1], ['s', 'S%', 0, 100, 0.1], ['v', 'V%', 0, 100, 0.1],
 ];
 
-const buildGradient = <T extends Record<string, number>>(
-  items: SliderItem<T>[],
-  values: T,
-  key: keyof T,
-  toRgb: (value: T) => { r: number; g: number; b: number },
-) => {
-  const item = items.find(candidate => candidate[0] === key);
-  if (!item) return '';
-  const min = item[2];
-  const max = item[3];
-  const stops = Array.from({ length: 17 }, (_, index) => {
-    const value = min + (max - min) * index / 16;
-    const candidate = { ...values, [key]: value } as T;
-    return rgbToHex(toRgb(candidate));
+const CMYK_GRADIENTS = {
+  c: 'linear-gradient(to right, #ffffff, #00ffff)',
+  m: 'linear-gradient(to right, #ffffff, #ff00ff)',
+  y: 'linear-gradient(to right, #ffffff, #ffff00)',
+  k: 'linear-gradient(to right, #ffffff, #000000)',
+} as const;
+
+function toCssHex(rgb: { r: number; g: number; b: number }) {
+  const clamp255 = (v: number) => Math.max(0, Math.min(255, v));
+  return '#' + [rgb.r, rgb.g, rgb.b]
+    .map(v => Math.round(clamp255(v)).toString(16).padStart(2, '0'))
+    .join('');
+}
+
+function makeGradient(
+  min: number,
+  max: number,
+  colorAt: (value: number) => string,
+  stops = 25,
+) {
+  const colors = Array.from({ length: stops }, (_, i) => {
+    const value = min + (max - min) * i / (stops - 1);
+    return colorAt(value);
   });
-  return `linear-gradient(to right, ${stops.join(', ')})`;
-};
+  return `linear-gradient(to right, ${colors.map((color, i) => `${color} ${(i / (stops - 1)) * 100}%`).join(', ')})`;
+}
+
+
 
 export function useColorController() {
   const [illuminant, setIlluminant] = useState<Illuminant>('D65');
@@ -52,42 +63,97 @@ export function useColorController() {
     stateFromHsv({ h: 0, s: 100, v: 100 }, 'D65', 'GCR'),
   );
 
-  const changeCmyk = (key: keyof CMYK, value: number) => {
-    setState(stateFromCmyk({ ...state.cmyk, [key]: value }, illuminant, separation));
-  };
-  const changeLab = (key: keyof LAB, value: number) => {
-    setState(stateFromLab({ ...state.lab, [key]: value }, illuminant, strategy, separation));
-  };
-  const changeHsv = (key: keyof HSV, value: number) => {
-    setState(stateFromHsv({ ...state.hsv, [key]: value }, illuminant, separation));
-  };
-  const changeIlluminant = (value: Illuminant) => {
+  const changeCmyk = useCallback((key: keyof CMYK, value: number) => {
+    setState(current => stateFromCmyk({ ...current.cmyk, [key]: value }, illuminant, separation, current.hsv));
+  }, [illuminant, separation]);
+
+  const changeLab = useCallback((key: keyof LAB, value: number) => {
+    setState(current => stateFromLab({ ...current.lab, [key]: value }, illuminant, strategy, separation, current.hsv));
+  }, [illuminant, strategy, separation]);
+
+  const changeHsv = useCallback((key: keyof HSV, value: number) => {
+    setState(current => stateFromHsv({ ...current.hsv, [key]: value }, illuminant, separation));
+  }, [illuminant, separation]);
+
+  const changeIlluminant = useCallback((value: Illuminant) => {
     setIlluminant(value);
-    setState(stateForIlluminant(state, value, separation));
-  };
-  const changeSeparation = (value: SeparationAlgorithm) => {
+    setState(current => stateForIlluminant(current, value, separation));
+  }, [separation]);
+
+  const changeSeparation = useCallback((value: SeparationAlgorithm) => {
     setSeparation(value);
-    setState(stateForSeparation(state, value));
-  };
-  const changeStrategy = (value: GamutStrategy) => {
+    setState(current => stateForSeparation(current, value));
+  }, []);
+
+  const changeStrategy = useCallback((value: GamutStrategy) => {
     setStrategy(value);
-    setState(stateFromLab(state.lab, illuminant, value, separation));
-  };
-  const changeHex = (hex: string) => {
-    const rgb = hexToRgb(hex);
-    setState(stateFromCmyk(rgbToCmyk(rgb, separation), illuminant, separation));
-  };
+    setState(current => stateFromLab(current.lab, illuminant, value, separation, current.hsv));
+  }, [illuminant, separation]);
+
+  const changeHex = useCallback((hexValue: string) => {
+    const rgb = hexToRgb(hexValue);
+    setState(current => stateFromCmyk(rgbToCmyk(rgb, separation), illuminant, separation, current.hsv));
+  }, [illuminant, separation]);
 
   const hex = rgbToHex(state.rgb);
   const gamut = labToRgbWithGamut(state.lab, illuminant, strategy);
 
+
+
+  const labLGradient = useMemo(() => makeGradient(
+    0,
+    100,
+    value => toCssHex(labToRgbWithGamut(
+      { l: value, a: state.lab.a, b: state.lab.b },
+      illuminant,
+      strategy,
+    ).rgb),
+  ), [state.lab.a, state.lab.b, illuminant, strategy]);
+
+  const labAGradient = useMemo(() => makeGradient(
+    -128,
+    127,
+    value => toCssHex(labToRgbWithGamut(
+      { l: state.lab.l, a: value, b: state.lab.b },
+      illuminant,
+      strategy,
+    ).rgb),
+  ), [state.lab.l, state.lab.b, illuminant, strategy]);
+
+  const labBGradient = useMemo(() => makeGradient(
+    -128,
+    127,
+    value => toCssHex(labToRgbWithGamut(
+      { l: state.lab.l, a: state.lab.a, b: value },
+      illuminant,
+      strategy,
+    ).rgb),
+  ), [state.lab.l, state.lab.a, illuminant, strategy]);
+
+  const hsvHGradient = useMemo(() => makeGradient(
+    0,
+    360,
+    value => toCssHex(hsvToRgb({ h: value, s: state.hsv.s, v: state.hsv.v })),
+  ), [state.hsv.s, state.hsv.v]);
+
+  const hsvSGradient = useMemo(() => makeGradient(
+    0,
+    100,
+    value => toCssHex(hsvToRgb({ h: state.hsv.h, s: value, v: state.hsv.v })),
+  ), [state.hsv.h, state.hsv.v]);
+
+  const hsvVGradient = useMemo(() => makeGradient(
+    0,
+    100,
+    value => toCssHex(hsvToRgb({ h: state.hsv.h, s: state.hsv.s, v: value })),
+  ), [state.hsv.h, state.hsv.s]);
+
   const gradients = useMemo(() => ({
-    cmyk: (key: keyof CMYK) => buildGradient(CMYK_FIELDS, state.cmyk, key, cmykToRgb),
-    lab: (key: keyof LAB) => buildGradient(LAB_FIELDS, state.lab, key, value =>
-      labToRgbWithGamut(value as LAB, illuminant, strategy).rgb,
-    ),
-    hsv: (key: keyof HSV) => buildGradient(HSV_FIELDS, state.hsv, key, value => hsvToRgb(value as HSV)),
-  }), [state.cmyk, state.lab, state.hsv, illuminant, strategy]);
+    cmyk: (key: keyof CMYK) => CMYK_GRADIENTS[key],
+    lab: (key: keyof LAB) => ({ l: labLGradient, a: labAGradient, b: labBGradient }[key]),
+    hsv: (key: keyof HSV) => ({ h: hsvHGradient, s: hsvSGradient, v: hsvVGradient }[key]),
+  }), [labLGradient, labAGradient, labBGradient, hsvHGradient, hsvSGradient, hsvVGradient]);
+
 
   return {
     state,
