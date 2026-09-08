@@ -1,9 +1,15 @@
 import assert from 'node:assert/strict';
-import { buildConversionMatrices, rgbToCmyk, rgbToLab, labToRgb, cmykToRgb, cmykToHsv, hsvToCmyk, labToHsv, hsvToLab, cmykToLab, labToCmyk, rgbToHsv, hsvToRgb } from '../model/color.ts';
+import { buildConversionMatrices, rgbToCmyk, rgbToLab, labToRgb, cmykToRgb, cmykToHsv, hsvToCmyk, labToHsv, hsvToLab, cmykToLab, labToCmyk, rgbToHsv, hsvToRgb, labToRgbWithGamut } from '../model/color.ts';
 
 const close = (actual: number, expected: number, tolerance: number) => {
   assert.ok(Math.abs(actual - expected) <= tolerance, `${actual} is not within ${tolerance} of ${expected}`);
 };
+
+
+const nearBlackLab = rgbToLab({ r: 0, g: 0, b: 17 }, 'D65');
+const nearBlackBack = labToRgbWithGamut(nearBlackLab, 'D65', 'clipping');
+assert.equal(nearBlackBack.clipped, false);
+close(nearBlackBack.rgb.r, 0, 1e-10);
 
 const redLab = rgbToLab({ r: 255, g: 0, b: 0 }, 'D65');
 close(redLab.l, 53.2407888676, 1e-9);
@@ -86,3 +92,18 @@ for (const illuminant of ['D65', 'D50', 'E'] as const) {
   const matrix = buildConversionMatrices(illuminant).rgbToXyz;
   for (const row of matrix) for (const value of row) assert.ok(Number.isFinite(value));
 }
+
+const outOfGamutLab = { l: 50, a: 127, b: 127 };
+const scaledLab = labToRgbWithGamut(outOfGamutLab, 'D65', 'scaling');
+assert.ok(scaledLab.clipped);
+for (const channel of [scaledLab.rgb.r, scaledLab.rgb.g, scaledLab.rgb.b]) {
+  assert.ok(channel >= -1e-7 && channel <= 255 + 1e-7);
+  assert.ok(Number.isFinite(channel));
+}
+const scaledLabBack = rgbToLab(scaledLab.rgb, 'D65');
+close(scaledLabBack.l, outOfGamutLab.l, 1e-4);
+assert.ok(Math.abs(scaledLabBack.a) < Math.abs(outOfGamutLab.a));
+assert.ok(Math.abs(scaledLabBack.b) < Math.abs(outOfGamutLab.b));
+
+const negativeLinearLab = labToRgbWithGamut({ l: 50, a: -128, b: 127 }, 'D65', 'clipping');
+for (const channel of [negativeLinearLab.rgb.r, negativeLinearLab.rgb.g, negativeLinearLab.rgb.b]) assert.ok(Number.isFinite(channel));

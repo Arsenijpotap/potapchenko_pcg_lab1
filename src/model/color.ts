@@ -11,6 +11,7 @@ type Matrix3 = [[number, number, number], [number, number, number], [number, num
 type ConversionMatrices = { rgbToXyz: Matrix3; xyzToRgb: Matrix3; whitePoint: XYZ };
 
 const clamp = (x: number, min = 0, max = 1) => Math.min(max, Math.max(min, x));
+const GAMUT_EPSILON = 1e-7;
 const EPSILON = 216 / 24389;
 const KAPPA = 841 / 108;
 const EPSILON_CUBE_ROOT = 16 / 116;
@@ -155,7 +156,9 @@ function rgbToXyz(rgb: RGB, illuminant: Illuminant): XYZ {
 }
 
 function gammaEncode(value: number): number {
-  return value <= 0.0031308 ? 12.92 * value : 1.055 * Math.pow(value, 1 / 2.4) - 0.055;
+  const sign = value < 0 ? -1 : 1;
+  const magnitude = Math.abs(value);
+  return sign * (magnitude <= 0.0031308 ? 12.92 * magnitude : 1.055 * Math.pow(magnitude, 1 / 2.4) - 0.055);
 }
 
 export function xyzToRgbRaw(xyz: XYZ, illuminant: Illuminant): RGB {
@@ -163,12 +166,45 @@ export function xyzToRgbRaw(xyz: XYZ, illuminant: Illuminant): RGB {
   return { r: gammaEncode(linear.x) * 255, g: gammaEncode(linear.y) * 255, b: gammaEncode(linear.z) * 255 };
 }
 
-function mapOutOfGamut(raw: RGB, strategy: GamutStrategy): { rgb: RGB; clipped: boolean } {
-  const out = raw.r < 0 || raw.r > 255 || raw.g < 0 || raw.g > 255 || raw.b < 0 || raw.b > 255;
-  if (!out) return { rgb: raw, clipped: false };
+function isRgbInGamut(rgb: RGB): boolean {
+  return rgb.r >= -GAMUT_EPSILON && rgb.r <= 255 + GAMUT_EPSILON &&
+    rgb.g >= -GAMUT_EPSILON && rgb.g <= 255 + GAMUT_EPSILON &&
+    rgb.b >= -GAMUT_EPSILON && rgb.b <= 255 + GAMUT_EPSILON;
+}
+
+function scaleLabToGamut(lab: LAB, illuminant: Illuminant): RGB {
+  const neutral = labToRgbRaw({ l: lab.l, a: 0, b: 0 }, illuminant);
+  if (!isRgbInGamut(neutral)) return { r: clamp(neutral.r / 255) * 255, g: clamp(neutral.g / 255) * 255, b: clamp(neutral.b / 255) * 255 };
+  let low = 0;
+  let high = 1;
+  for (let i = 0; i < 32; i += 1) {
+    const factor = (low + high) / 2;
+    const candidate = labToRgbRaw({ l: lab.l, a: lab.a * factor, b: lab.b * factor }, illuminant);
+    if (isRgbInGamut(candidate)) low = factor;
+    else high = factor;
+  }
+  const result = labToRgbRaw({ l: lab.l, a: lab.a * low, b: lab.b * low }, illuminant);
+  return { r: clamp(result.r / 255) * 255, g: clamp(result.g / 255) * 255, b: clamp(result.b / 255) * 255 };
+}
+
+function mapOutOfGamut(raw: RGB, strategy: GamutStrategy, scaledRgb?: RGB): { rgb: RGB; clipped: boolean } {
+  const out =
+    raw.r < -GAMUT_EPSILON || raw.r > 255 + GAMUT_EPSILON ||
+    raw.g < -GAMUT_EPSILON || raw.g > 255 + GAMUT_EPSILON ||
+    raw.b < -GAMUT_EPSILON || raw.b > 255 + GAMUT_EPSILON;
+
+  if (!out) {
+    const snap = (value: number) => {
+      if (Math.abs(value) <= GAMUT_EPSILON) return 0;
+      if (Math.abs(value - 255) <= GAMUT_EPSILON) return 255;
+      return value;
+    };
+    return { rgb: { r: snap(raw.r), g: snap(raw.g), b: snap(raw.b) }, clipped: false };
+  }
   if (strategy === 'clipping') {
     return { rgb: { r: clamp(raw.r / 255) * 255, g: clamp(raw.g / 255) * 255, b: clamp(raw.b / 255) * 255 }, clipped: true };
   }
+  if (scaledRgb) return { rgb: scaledRgb, clipped: true };
   const min = Math.min(raw.r, raw.g, raw.b);
   const max = Math.max(raw.r, raw.g, raw.b);
   if (max === min) return { rgb: { r: clamp(raw.r / 255) * 255, g: clamp(raw.g / 255) * 255, b: clamp(raw.b / 255) * 255 }, clipped: true };
@@ -202,8 +238,16 @@ export function labToXyz({ l, a, b }: LAB, illuminant: Illuminant = 'D65'): XYZ 
   return { x: white.x * finv(fx), y: white.y * finv(fy), z: white.z * finv(fz) };
 }
 
+function labToRgbRaw(lab: LAB, illuminant: Illuminant): RGB {
+  return xyzToRgbRaw(labToXyz(lab, illuminant), illuminant);
+}
+
 export function labToRgbWithGamut(lab: LAB, illuminant: Illuminant = 'D65', strategy: GamutStrategy = 'clipping') {
-  return xyzToRgbWithGamut(labToXyz(lab, illuminant), illuminant, strategy);
+  const raw = labToRgbRaw(lab, illuminant);
+  if (strategy === 'scaling' && !isRgbInGamut(raw)) {
+    return { rgb: scaleLabToGamut(lab, illuminant), clipped: true };
+  }
+  return mapOutOfGamut(raw, strategy);
 }
 
 export function labToRgb(lab: LAB, illuminant: Illuminant = 'D65', strategy: GamutStrategy = 'clipping'): RGB {
